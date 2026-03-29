@@ -28,7 +28,7 @@ unsigned long startTime = 0;
 uint32_t totalBytesReceived = 0;
 bool firstPacket = true;
 unsigned long lastDataTime = 0;
-uint16_t imgSeq = 0; // Moved to file scope (was static inside if-block)
+uint16_t imgSeq = 0;
 
 uint8_t calculateChecksum(uint8_t* data, int len) {
     uint16_t sum = 0;
@@ -138,22 +138,29 @@ void loop() {
 
             if (calculateChecksum(p->data, LORA_PAYLOAD) == p->checksum) {
 
+                if (p->type == 0 && firstPacket) {
+                    imgSeq = 0;
+                    startTime = millis();
+                    firstPacket = false;
+                    totalBytesReceived = 0;
+                }
+                if (p->type == 0) totalBytesReceived += LORA_PAYLOAD;
+
+                unsigned long elapsed = millis() - startTime;
+                float throughput = (!firstPacket && elapsed > 0)
+                    ? (totalBytesReceived * 1000.0f / elapsed)
+                    : 0.0f;
+
                 // Prefix changed to METRIC: to match receiver.py
                 int32_t latency = (int32_t)(millis() - p->timestamp);
                 Serial.print(F("METRIC:RSSI="));  Serial.print(rf95.lastRssi());
-                Serial.print(F("|LATENCY(ms)="));    Serial.println(latency);
+                Serial.print(F("|LATENCY(ms)="));    Serial.print(latency);
+                Serial.print(F("|THROUGHPUT(Bps)=")); Serial.println(throughput);
 
                 if (p->type == 1) {
                     Serial.print(F("NODE_")); Serial.print(from);
                     Serial.print(F(": "));              Serial.println((char*)p->data);
                 } else {
-                    if (firstPacket) {
-                        imgSeq = 0;
-                        startTime    = millis();
-                        firstPacket  = false;
-                        totalBytesReceived = 0; // Reset on new transfer
-                    }
-                    totalBytesReceived += LORA_PAYLOAD;
 
                     // DATA:seq:hex — format receiver.py expects
                     Serial.print(F("DATA:"));
