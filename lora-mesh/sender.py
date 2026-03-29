@@ -25,10 +25,10 @@ with open(FILENAME, 'rb') as f:
         
         while True:
             line = ser.readline().decode(errors='ignore').strip()
-            if line:
-                print(f"[ARDUINO]: {line}")  # Print everything
+            if not line:
+                continue
+            print(f"[NODE1]: {line}")  # print everything
             if f"ACK:{chunk_idx}" in line:
-                print(f"Sent chunk {chunk_idx}")
                 chunk_idx += 1
                 break
             elif "RETRY" in line:

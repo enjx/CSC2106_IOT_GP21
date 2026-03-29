@@ -8,9 +8,12 @@ try:
     with open('received_image_verified.jpg', 'wb') as f:
         while True:
             line = ser.readline().decode(errors='ignore').strip()
+            if not line:
+                continue
+
             if line.startswith("METRIC:"):
-                print(f"Stats: {line}") # Simply print the metrics to the console
-            
+                print(f"Stats: {line}")
+
             elif line.startswith("DATA:"):
                 parts = line.split(':')
                 if len(parts) == 3:
@@ -21,5 +24,9 @@ try:
 
             elif line.startswith("CORRUPT:"):
                 print(f"!!! Warning: Chunk {line.split(':')[1]} was corrupted and discarded.")
+
+            else:
+                print(f"[GW]: {line}")  # ← catches NODE messages and anything unexpected
+
 except KeyboardInterrupt:
     print("\nTransfer ended.")
