@@ -8,8 +8,7 @@
 #define RF95_FREQ 923.0
 
 #define NODE_ID 1
-#define GATEWAY_ID 2
-
+#define GATEWAY_ID 1
 #define LORA_PAYLOAD 42 // Bytes per LoRa packet
 
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
@@ -52,7 +51,7 @@ void setup() {
         while (1);
     }
     rf95.setFrequency(RF95_FREQ);
-    rf95.setTxPower(23, false);
+    rf95.setTxPower(2, false);
     Serial.print(F("READY, NODE_ID="));
     Serial.println(NODE_ID);
 }
@@ -143,6 +142,34 @@ void loop() {
 
         } else {
             lastDataTime = 0;
+            
+            // Listen for packets being relayed through this node
+            // This allows non-participating sender nodes to log relay activity
+            uint8_t buf[sizeof(ImagePacket)];
+            uint8_t len  = sizeof(buf);
+            uint8_t from;
+
+            if (manager.recvfromAck(buf, &len, &from)) {
+                ImagePacket* p = (ImagePacket*)buf;
+                
+                // Log relay activity - packet from another node passing through
+                Serial.print(F("RELAY: Forwarding "));
+                
+                if (p->type == 0) {
+                    Serial.print(F("chunk "));
+                    Serial.print(p->seq);
+                } else if (p->type == 1) {
+                    Serial.print(F("message: \""));
+                    Serial.print((char*)p->data);
+                    Serial.print(F("\""));
+                }
+                
+                Serial.print(F(" from NODE_"));
+                Serial.print(from);
+                Serial.print(F(" to GATEWAY"));
+                Serial.print(F(" | RSSI="));
+                Serial.println(rf95.lastRssi());
+            }
         }
     }
 
