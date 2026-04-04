@@ -16,9 +16,10 @@ RH_RF95 rf95(RFM95_CS, RFM95_INT);
 RHMesh manager(rf95, NODE_ID);
 
 struct __attribute__((__packed__)) ImagePacket {
-    uint8_t  type;
+    uint8_t  type;      // 0=image, 1=text
     uint16_t seq;
     uint32_t timestamp;
+    uint16_t rtt;       // Round-trip time measured by sender (in ms)
     uint8_t  checksum;
     uint8_t  data[LORA_PAYLOAD];
 };
@@ -29,6 +30,11 @@ uint32_t totalBytesReceived = 0;
 bool firstPacket = true;
 unsigned long lastDataTime = 0;
 uint16_t imgSeq = 0;
+int32_t prevRTT = 0; // RTT from sender's ACK measurement
+uint8_t targetNodeId = 0; // Store the node ID for routing
+unsigned long lastDataReceived = 0; // Track when we last received data
+uint16_t lastMeasuredRTT = 0; // Store previous RTT to send in next packet
+uint16_t lastReceivedSeq = 0xFFFF; // Track last received sequence number
 
 uint8_t calculateChecksum(uint8_t* data, int len) {
     uint16_t sum = 0;
@@ -52,18 +58,29 @@ void setup() {
 }
 
 // ----------------------------------------------------------------
-// Sends a LoRa packet. Returns true on success.
+// Sends a LoRa packet and measures RTT. Returns RadioHead status code.
+// Packet contains RTT from PREVIOUS transmission.
 // ----------------------------------------------------------------
 uint8_t sendPacket(ImagePacket& pkg) {
     pkg.timestamp = millis();
+    pkg.rtt = lastMeasuredRTT; // Include RTT from previous packet
     pkg.checksum  = calculateChecksum(pkg.data, LORA_PAYLOAD);
-    return manager.sendtoWait((uint8_t*)&pkg, sizeof(pkg), GATEWAY_ID);
+    
+    unsigned long sendStart = millis();
+    uint8_t status = manager.sendtoWait((uint8_t*)&pkg, sizeof(pkg), GATEWAY_ID);
+    
+    if (status == RH_ROUTER_ERROR_NONE) {
+        // Measure RTT and store for NEXT packet
+        lastMeasuredRTT = (uint16_t)(millis() - sendStart);
+    }
+    
+    return status;
 }
 
 void loop() {
 
     // ===== SENDER LOGIC (NODE 1) =====
-    if (NODE_ID == 1) {
+    if (NODE_ID != GATEWAY_ID) {
 
         if (Serial.available() > 0) {
             if (lastDataTime == 0) lastDataTime = millis();
@@ -84,7 +101,8 @@ void loop() {
 
                     uint8_t status = sendPacket(pkg);
                     if (status == RH_ROUTER_ERROR_NONE) {
-                        Serial.println(F("MSG_SENT_OK"));
+                        Serial.print(F("MSG_SENT_OK|RTT(ms)="));
+                        Serial.println(lastMeasuredRTT);
                     } else {
                         Serial.print(F("MSG_FAIL, Error: "));
                         Serial.println(status);
@@ -106,7 +124,9 @@ void loop() {
                 if (status == RH_ROUTER_ERROR_NONE) {
                     imgSeq++;
                     Serial.print(F("ACK:"));
-                    Serial.println(pkg.seq);
+                    Serial.print(pkg.seq);
+                    Serial.print(F("|RTT(ms)="));
+                    Serial.println(lastMeasuredRTT);
                 } else {
                     Serial.println(F("RETRY"));
                     Serial.println(status);
@@ -127,7 +147,7 @@ void loop() {
     }
 
     // ===== RECEIVER LOGIC (GATEWAY) =====
-    if (NODE_ID == GATEWAY_ID) {
+    else {
         uint8_t buf[sizeof(ImagePacket)];
         uint8_t len  = sizeof(buf);
         uint8_t from;
@@ -138,24 +158,56 @@ void loop() {
 
             if (calculateChecksum(p->data, LORA_PAYLOAD) == p->checksum) {
 
-                if (p->type == 0 && firstPacket) {
-                    imgSeq = 0;
-                    startTime = millis();
-                    firstPacket = false;
-                    totalBytesReceived = 0;
+                // Detect new image transfer and handle throughput tracking
+                if (p->type == 0) {
+                    // Check if this is a new transfer (first packet OR seq reset/backwards)
+                    bool isNewTransfer = firstPacket || 
+                                        (p->seq == 0 && lastReceivedSeq != 0xFFFF) || 
+                                        (p->seq < lastReceivedSeq);
+                    
+                    if (isNewTransfer) {
+                        // Reset throughput tracking for new transfer
+                        startTime = millis();
+                        totalBytesReceived = 0;
+                        firstPacket = false;
+                        
+                        if (lastReceivedSeq != 0xFFFF) {
+                            Serial.println(F("INFO: New image transfer detected"));
+                        }
+                    }
+                    
+                    lastReceivedSeq = p->seq;
+                    totalBytesReceived += LORA_PAYLOAD;
                 }
-                if (p->type == 0) totalBytesReceived += LORA_PAYLOAD;
+
+                // Store the node ID for RTT measurements
+                if (targetNodeId == 0) {
+                    targetNodeId = from;
+                }
+
+                // Track when we last received data
+                lastDataReceived = millis();
+
+                // Use RTT from the packet (measured by sender during ACK)
+                if (p->rtt > 0) {
+                    prevRTT = p->rtt;
+                }
 
                 unsigned long elapsed = millis() - startTime;
                 float throughput = (!firstPacket && elapsed > 0)
                     ? (totalBytesReceived * 1000.0f / elapsed)
                     : 0.0f;
 
-                // Prefix changed to METRIC: to match receiver.py
-                int32_t latency = (int32_t)(millis() - p->timestamp);
+                // RTT measurement from data packet ACKs (measured by sender)
                 Serial.print(F("METRIC:RSSI="));  Serial.print(rf95.lastRssi());
-                Serial.print(F("|LATENCY(ms)="));    Serial.print(latency);
+                Serial.print(F("|Previous RTT(ms)="));
+                if (prevRTT > 0) {
+                    Serial.print(prevRTT);
+                } else {
+                    Serial.print(F("N/A"));
+                }
                 Serial.print(F("|THROUGHPUT(Bps)=")); Serial.println(throughput);
+                
 
                 if (p->type == 1) {
                     Serial.print(F("NODE_")); Serial.print(from);
