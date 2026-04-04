@@ -17,27 +17,21 @@ with open(FILENAME, 'rb') as f:
         if not data:
             break
 
-        # Ensure data is matches size for the Arduino buffer
+        # Ensure data matches size for the Arduino buffer
         if len(data) < CHUNK_SIZE:
             data = data + b'\x00' * (CHUNK_SIZE - len(data))
         
         ser.write(data)
-        retry_count = 0
-        MAX_RETRIES = 3  # Match RadioHead library default
         
+        # Wait for ACK or FAIL from Arduino (retries handled by mesh node)
         while True:
             line = ser.readline().decode(errors='ignore').strip()
             if not line:
                 continue
-            print(f"[NODE1]: {line}")  # print everything
+            print(f"[NODE1]: {line}")
             if f"ACK:{chunk_idx}" in line:
                 chunk_idx += 1
                 break
-            elif "RETRY" in line:
-                retry_count += 1
-                if retry_count <= MAX_RETRIES:
-                    print(f"Retrying chunk {chunk_idx}... (attempt {retry_count}/{MAX_RETRIES})")
-                    ser.write(data)
-                else:
-                    print(f"ERROR: Chunk {chunk_idx} failed after {MAX_RETRIES} retries. Aborting.")
-                    exit(1)
+            elif line.startswith("FAIL:"):
+                print(f"ERROR: Chunk {chunk_idx} failed after all retries. Aborting.")
+                exit(1)

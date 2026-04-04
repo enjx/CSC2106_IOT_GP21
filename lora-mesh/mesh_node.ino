@@ -8,9 +8,13 @@
 #define RF95_FREQ 923.0
 
 #define NODE_ID 1
-#define GATEWAY_ID 2
+#define GATEWAY_ID 1
 
 #define LORA_PAYLOAD 42 // Bytes per LoRa packet
+#define MAX_RETRIES 6   // Retry attempts for failed packets
+
+// Simulated packet loss (set to 0 to disable, 1-100 for drop percentage)
+#define SIM_PACKET_LOSS_PERCENT 0
 
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
 RHMesh manager(rf95, NODE_ID);
@@ -44,6 +48,7 @@ uint8_t calculateChecksum(uint8_t* data, int len) {
 
 void setup() {
     Serial.begin(9600);
+    randomSeed(analogRead(A0)); // Seed RNG for packet loss simulation
     pinMode(RFM95_RST, OUTPUT);
     digitalWrite(RFM95_RST, LOW);  delay(10);
     digitalWrite(RFM95_RST, HIGH); delay(10);
@@ -78,16 +83,17 @@ uint8_t sendPacket(ImagePacket& pkg) {
 }
 
 void loop() {
-
     // ===== SENDER LOGIC (NODE 1) =====
     if (NODE_ID != GATEWAY_ID) {
 
         if (Serial.available() > 0) {
             if (lastDataTime == 0) lastDataTime = millis();
 
-            // --- Text message command ---
+            // --- Command handling ---
             if (Serial.peek() == '/') {
                 String cmd = Serial.readStringUntil('\n');
+                
+                // Text message command
                 if (cmd.startsWith("/msg ")) {
                     String msg = cmd.substring(5);
                     if (msg.length() > LORA_PAYLOAD-1) {
@@ -120,17 +126,51 @@ void loop() {
                 pkg.seq  = imgSeq;
                 Serial.readBytes((char*)pkg.data, LORA_PAYLOAD);
 
-                uint8_t status = sendPacket(pkg);
-                if (status == RH_ROUTER_ERROR_NONE) {
-                    imgSeq++;
-                    Serial.print(F("ACK:"));
-                    Serial.print(pkg.seq);
-                    Serial.print(F("|RTT(ms)="));
-                    Serial.println(lastMeasuredRTT);
-                } else {
-                    Serial.println(F("RETRY"));
-                    Serial.println(status);
+                bool success = false;
+                uint8_t retryCount = 0;
+
+                while (!success && retryCount <= MAX_RETRIES) {
+                    // Simulate random packet loss
+                    #if SIM_PACKET_LOSS_PERCENT > 0
+                    if (random(100) < SIM_PACKET_LOSS_PERCENT) {
+                        Serial.print(F("SIM: Packet "));
+                        Serial.print(pkg.seq);
+                        Serial.println(F(" dropped"));
+                        retryCount++;
+                        if (retryCount <= MAX_RETRIES) {
+                            Serial.print(F("RETRY "));
+                            Serial.print(retryCount);
+                            Serial.print(F("/"));
+                            Serial.println(MAX_RETRIES);
+                        }
+                        continue;
+                    }
+                    #endif
+
+                    uint8_t status = sendPacket(pkg);
+                    if (status == RH_ROUTER_ERROR_NONE) {
+                        success = true;
+                        imgSeq++;
+                        Serial.print(F("ACK:"));
+                        Serial.print(pkg.seq);
+                        Serial.print(F("|RTT(ms)="));
+                        Serial.println(lastMeasuredRTT);
+                    } else {
+                        retryCount++;
+                        if (retryCount <= MAX_RETRIES) {
+                            Serial.print(F("RETRY "));
+                            Serial.print(retryCount);
+                            Serial.print(F("/"));
+                            Serial.println(MAX_RETRIES);
+                        }
+                    }
                 }
+
+                if (!success) {
+                    Serial.print(F("FAIL:"));
+                    Serial.println(pkg.seq);
+                }
+
                 lastDataTime = 0;
             }
 
@@ -170,8 +210,9 @@ void loop() {
                         startTime = millis();
                         totalBytesReceived = 0;
                         firstPacket = false;
+                        lastReceivedSeq = 0xFFFF; // Reset for next transfer detection
                         
-                        if (lastReceivedSeq != 0xFFFF) {
+                        if (!firstPacket && p->seq == 0) {
                             Serial.println(F("INFO: New image transfer detected"));
                         }
                     }
