@@ -1,1 +1,1 @@
-README.md files for LoRa and ESP are within the folders respectively.
+README.md and Reflection.md files for LoRa and ESP are within the folders respectively.
