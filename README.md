@@ -92,7 +92,7 @@ Based on Layer 3 node testing (March 2026):
 | Feature | ESP-MESH | LoRa Mesh |
 |---------|----------|-----------|
 | **Frequency** | 2.4 GHz (WiFi) | 923 MHz (LoRa) |
-| **Range** | ~100m indoor | Several km outdoor |
+| **Range** | ~100m indoor | ~1.5 km in urban environments |
 | **Throughput** | ~442 B/s (tested) | Lower (50B packets) |
 | **Power Consumption** | Higher | Very low |
 | **Payload Size** | 800 bytes | 50 bytes |
