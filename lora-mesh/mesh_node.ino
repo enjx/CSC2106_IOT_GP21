@@ -10,7 +10,7 @@
 #define NODE_ID 1
 #define GATEWAY_ID 1
 
-#define LORA_PAYLOAD 42 // Bytes per LoRa packet
+#define LORA_PAYLOAD 50 // Bytes per LoRa packet (must fit in 64-byte serial buffer)
 #define MAX_RETRIES 6   // Retry attempts for failed packets
 
 // Simulated packet loss (set to 0 to disable, 1-100 for drop percentage)
@@ -22,7 +22,6 @@ RHMesh manager(rf95, NODE_ID);
 struct __attribute__((__packed__)) ImagePacket {
     uint8_t  type;      // 0=image, 1=text
     uint16_t seq;
-    uint32_t timestamp;
     uint16_t rtt;       // Round-trip time measured by sender (in ms)
     uint8_t  checksum;
     uint8_t  data[LORA_PAYLOAD];
@@ -67,7 +66,6 @@ void setup() {
 // Packet contains RTT from PREVIOUS transmission.
 // ----------------------------------------------------------------
 uint8_t sendPacket(ImagePacket& pkg) {
-    pkg.timestamp = millis();
     pkg.rtt = lastMeasuredRTT; // Include RTT from previous packet
     pkg.checksum  = calculateChecksum(pkg.data, LORA_PAYLOAD);
     

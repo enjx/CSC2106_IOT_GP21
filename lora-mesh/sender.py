@@ -4,7 +4,7 @@ import time
 PORT = 'COM9' # Insert port no. used by your sender node
 BAUD = 9600    
 FILENAME = 'image.jpg'
-CHUNK_SIZE = 42  # Match LORA_PAYLOAD in mesh_node.ino
+CHUNK_SIZE = 50  # Match LORA_PAYLOAD in mesh_node.ino (must fit in 64-byte serial buffer)
 
 ser = serial.Serial(PORT, BAUD, timeout=1)
 time.sleep(2) # Wait for Arduino to reset
