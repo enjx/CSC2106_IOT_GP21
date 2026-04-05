@@ -1,0 +1,6 @@
+run,filename,size_bytes,status,latency_s,throughput_bps,initial_sent,total_chunks,packet_loss_pct,retry_rounds,retry_chunks,ack_timeouts,all_recovered
+1,photo1.jpg,17404,OK,53.88,323.0,22,22,0.0,0,0,0,YES
+2,photo2.jpg,32146,OK,64.09,501.6,41,41,0.0,0,0,0,YES
+3,photo3.jpg,23625,OK,56.03,421.7,30,30,0.0,0,0,0,YES
+4,photo4.jpg,36153,OK,84.44,428.1,46,46,0.0,0,0,0,YES
+5,photo5.jpg,44919,OK,83.82,535.9,57,57,0.0,0,0,0,YES

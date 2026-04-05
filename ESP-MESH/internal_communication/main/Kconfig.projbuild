@@ -1,0 +1,57 @@
+menu "Mesh Configuration"
+
+    config MESH_IS_ROOT
+        bool "This node is the ROOT node"
+        default n
+        help
+            Enable this ONLY on the firmware flashed to the designated root node.
+            All other nodes should leave this disabled.
+
+    config MESH_ID
+        string "Mesh Network ID (6 chars)"
+        default "MY_MSH"
+        help
+            6-character string used as the mesh network identifier.
+            All nodes in the same mesh MUST use the same value.
+
+    config MESH_AP_PASSWD
+        string "Mesh AP Password"
+        default "meshpasswd"
+        help
+            Password for the internal mesh SoftAP. All nodes must match.
+
+    config MESH_CHANNEL
+        int "WiFi Channel"
+        range 1 13
+        default 1
+        help
+            Fixed WiFi channel for the mesh. All nodes must use the same channel.
+
+    config MESH_MAX_LAYER
+        int "Maximum Mesh Layers"
+        range 1 25
+        default 6
+        help
+            Maximum number of layers: root(1) -> layer2 -> layer3.
+
+    config MESH_AP_MAX_CONN
+        int "Max child connections per node"
+        range 1 10
+        default 2
+        help
+            How many child nodes can connect to this node as their parent.
+
+    config MESH_ROUTE_TABLE_SIZE
+        int "Routing Table Size"
+        range 1 300
+        default 50
+        help
+            Maximum number of nodes tracked in the routing table.
+
+    config LED_GPIO
+        int "LED GPIO pin"
+        default 10
+        help
+            GPIO pin for the LED indicator (GPIO10 on M5StickC Plus).
+
+endmenu
