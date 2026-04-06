@@ -95,7 +95,7 @@ Edit the following parameters in `mesh_node.ino` before uploading:
 ### Packet Drop Simulation
 1. Configure the NODE_ID and GATEWAY_ID in mesh_node.ino.
 
-2. Configure the simulated packet loss percentage in the file as well (0-100%).
+2. Configure the simulated packet loss percentage in the gateway mesh node file (0-100%).
 ```c++
 // Simulated packet loss (set to 0 to disable, 1-100 for drop percentage)
 #define SIM_PACKET_LOSS_PERCENT 0
