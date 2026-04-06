@@ -33,6 +33,9 @@
 #include "driver/spi_master.h"
 #include "driver/uart.h"
 
+#include "mbedtls/md.h"      /* HMAC-SHA256 for application-layer auth */
+#include "esp_random.h"      /* esp_random() for nonce generation       */
+
 static const char *TAG = "esp_mesh";
 
 /* ================================================================
@@ -325,7 +328,6 @@ static void lcd_str(uint16_t x, uint16_t y, const char *s,
 #define MESH_MAX_LAYER        CONFIG_MESH_MAX_LAYER
 #define MESH_AP_MAX_CONN      CONFIG_MESH_AP_MAX_CONN
 #define LED_GPIO              CONFIG_LED_GPIO
-#define MESH_AP_PASSWORD      "ESPMesh21"  /* WPA2 — min 8 chars, change before deploy */
 
 static const uint8_t MESH_ID[6] = {
     CONFIG_MESH_ID[0], CONFIG_MESH_ID[1], CONFIG_MESH_ID[2],
@@ -735,15 +737,13 @@ static void mesh_init(void)
 
     cfg.mesh_ap.max_connection         = MESH_IS_ROOT ? 10 : MESH_AP_MAX_CONN;
     cfg.mesh_ap.nonmesh_max_connection = 0;
-    strncpy((char *)cfg.mesh_ap.password, MESH_AP_PASSWORD,
-            sizeof(cfg.mesh_ap.password) - 1);
-    cfg.mesh_ap.password[sizeof(cfg.mesh_ap.password) - 1] = '\0';
+    memset(cfg.mesh_ap.password, 0, sizeof(cfg.mesh_ap.password));
 
     ESP_ERROR_CHECK(esp_mesh_set_config(&cfg));
     ESP_ERROR_CHECK(esp_mesh_set_topology(MESH_TOPO_TREE));
     ESP_ERROR_CHECK(esp_mesh_set_max_layer(MESH_MAX_LAYER));
     ESP_ERROR_CHECK(esp_mesh_set_ap_connections(MESH_AP_MAX_CONN));
-    ESP_ERROR_CHECK(esp_mesh_set_ap_authmode(WIFI_AUTH_WPA2_PSK));
+    ESP_ERROR_CHECK(esp_mesh_set_ap_authmode(WIFI_AUTH_OPEN));
     ESP_ERROR_CHECK(esp_mesh_start());
 
     ESP_LOGI(TAG, "Mesh started channel=%d max_layer=3 is_root=%s",
@@ -915,19 +915,37 @@ static void mesh_recv_task(void *arg)
             uint32_t req_lock_ms = 0;
             sscanf(msg + 8, "%"SCNu32":%"SCNu32, &req_session, &req_lock_ms);
             char reply[32];
-            if (!lock_active) {
-                lock_active      = true;
-                lock_grant_tick  = xTaskGetTickCount();
-                lock_duration_ms = (req_lock_ms > 0) ? req_lock_ms : 240000;
-                memcpy(lock_mac, from.addr, 6);
-                snprintf(reply, sizeof(reply), "IMG_GRANT:%"PRIu32, req_session);
-                ESP_LOGI(TAG, "IMG_GRANT → " MACSTR " session:%"PRIu32" lock:%"PRIu32"ms",
-                         MAC2STR(from.addr), req_session, lock_duration_ms);
-            } else {
-                snprintf(reply, sizeof(reply), "IMG_BUSY:%"PRIu32, req_session);
-                ESP_LOGI(TAG, "IMG_BUSY  → " MACSTR " (lock held by " MACSTR ")",
-                         MAC2STR(from.addr), MAC2STR(lock_mac));
-            }
+        if (!lock_active) {
+            /* No current holder — grant normally */
+            lock_active      = true;
+            lock_grant_tick  = xTaskGetTickCount();
+            lock_duration_ms = (req_lock_ms > 0) ? req_lock_ms : 240000;
+            memcpy(lock_mac, from.addr, 6);
+            snprintf(reply, sizeof(reply), "IMG_GRANT:%"PRIu32, req_session);
+            ESP_LOGI(TAG, "IMG_GRANT → " MACSTR " session:%"PRIu32" lock:%"PRIu32"ms",
+                    MAC2STR(from.addr), req_session, lock_duration_ms);
+        } else if (memcmp(lock_mac, from.addr, 6) == 0) {
+            /* SAME node requesting again — it restarted or IMG_RELEASE was lost.
+            * Re-grant: reset the expiry timer and accept the new session. */
+            lock_grant_tick  = xTaskGetTickCount();
+            lock_duration_ms = (req_lock_ms > 0) ? req_lock_ms : 240000;
+            /* Reset any partial reassembly state from the abandoned session */
+            memset(received, 0, sizeof(received));
+            img_chunks   = 0;
+            img_received = 0;
+            img_session  = 0;
+            img_file_crc = 0;
+            s_root_img_total    = 0;
+            s_root_img_fname[0] = '\0';
+            snprintf(reply, sizeof(reply), "IMG_GRANT:%"PRIu32, req_session);
+            ESP_LOGW(TAG, "IMG_GRANT (re-grant — stale lock cleared) → " MACSTR
+                    " new_session:%"PRIu32, MAC2STR(from.addr), req_session);
+        } else {
+            /* Different node — genuinely busy */
+            snprintf(reply, sizeof(reply), "IMG_BUSY:%"PRIu32, req_session);
+            ESP_LOGI(TAG, "IMG_BUSY  → " MACSTR " (lock held by " MACSTR ")",
+                    MAC2STR(from.addr), MAC2STR(lock_mac));
+        }
             mesh_send_to_addr(&from, reply);
             continue;
         }
